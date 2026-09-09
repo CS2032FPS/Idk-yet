@@ -301,7 +301,7 @@
             scene.add(flashlight);
             scene.add(flashlight.target);
 
-            // 4. Construct 3-Story "⊞" Map
+            // 4. Construct 3-Story Map with Individual Patient Rooms
             buildAsylumStructure();
 
             // 5. Input & Fullscreen Setup
@@ -338,6 +338,7 @@
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.8 });
             const ceilMat = new THREE.MeshStandardMaterial({ color: 0x0d0d0f, roughness: 0.9 });
             const steelMat = new THREE.MeshStandardMaterial({ color: 0x550808, metalness: 0.7, roughness: 0.3 });
+            const furnitureMat = new THREE.MeshStandardMaterial({ color: 0x3d3a36, roughness: 0.7 });
 
             const mapSize = 56;
             const corridorWidth = 6;
@@ -359,6 +360,7 @@
                 ceilMesh.position.set(0, yBase + wallHeight, 0);
                 scene.add(ceilMesh);
 
+                // Perimeter Walls
                 createWall(0, yBase + wallHeight/2, -mapSize/2, mapSize, wallHeight, wallThickness, wallMat);
                 createWall(0, yBase + wallHeight/2, mapSize/2, mapSize, wallHeight, wallThickness, wallMat);
                 createWall(-mapSize/2, yBase + wallHeight/2, 0, wallThickness, wallHeight, mapSize, wallMat);
@@ -367,6 +369,7 @@
                 const quadSize = (mapSize - corridorWidth) / 2;
                 const offset = quadSize / 2 + corridorWidth / 2;
 
+                // Main Central Corridor Partition Walls
                 createWallWithDoor(-offset, yBase + wallHeight/2, 0, quadSize, wallHeight, wallThickness, wallMat);
                 createWallWithDoor(offset, yBase + wallHeight/2, 0, quadSize, wallHeight, wallThickness, wallMat);
                 createWallWithDoor(0, yBase + wallHeight/2, -offset, wallThickness, wallHeight, quadSize, wallMat);
@@ -374,18 +377,42 @@
 
                 const colors = [0x1e3a8a, 0x881337, 0x065f46, 0x78350f];
                 const quadPositions = [[-offset, -offset], [offset, -offset], [-offset, offset], [offset, offset]];
+                
                 quadPositions.forEach((pos, idx) => {
+                    const qx = pos[0];
+                    const qz = pos[1];
+
+                    // Sub-divide each quadrant into 4 distinct patient rooms with doorways
+                    createWallWithDoor(qx, yBase + wallHeight/2, qz, quadSize, wallHeight, wallThickness, wallMat);
+                    createWallWithDoor(qx, yBase + wallHeight/2, qz, wallThickness, wallHeight, quadSize, wallMat);
+
+                    // Ambient Lighting per quadrant
                     const light = new THREE.PointLight(colors[idx], 0.7, 14);
-                    light.position.set(pos[0], yBase + 3, pos[1]);
+                    light.position.set(qx, yBase + 3, qz);
                     scene.add(light);
+
+                    // Add room bed frames inside individual sub-rooms
+                    const subOffsets = [-quadSize/4, quadSize/4];
+                    subOffsets.forEach((rx) => {
+                        subOffsets.forEach((rz) => {
+                            const bed = new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 3.5), furnitureMat);
+                            bed.position.set(qx + rx, yBase + 0.3, qz + rz);
+                            scene.add(bed);
+
+                            const bedBox = new THREE.Box3().setFromObject(bed);
+                            collidableBoxes.push(bedBox);
+                        });
+                    });
                 });
 
+                // Elevator Landing Pad
                 const elevatorGeo = new THREE.BoxGeometry(4.5, 0.2, 4.5);
                 const elevator = new THREE.Mesh(elevatorGeo, steelMat);
                 elevator.position.set(0, yBase + 0.1, 0);
                 scene.add(elevator);
             }
 
+            // Elevator Central Support Pillars
             for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 2) {
                 const px = Math.cos(angle + Math.PI/4) * 2.8;
                 const pz = Math.sin(angle + Math.PI/4) * 2.8;
