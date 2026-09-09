@@ -238,7 +238,7 @@
     <div id="instructions">
         <h1>SANCTUM ⊞</h1>
         <p>Trapped in a 3-floor psychiatric grid facility.</p>
-        <p><strong>WARNING:</strong> Stare directly at the entity to banish it for 10 seconds. Do not let it touch you.</p>
+        <p><strong>WARNING:</strong> Look at the entity to banish it for 10 seconds. Changing floors spawns it far away on your new floor.</p>
         <p><strong>KEYBOARD / IPAD:</strong> WASD or Arrow keys to move | Mouse/Trackpad to look | F Light | E/Space Interact | Shift Sprint</p>
         <p><strong>TOUCH SCREEN:</strong> Left Joystick to Move | Right Drag to Look | Tap On-Screen Buttons</p>
         <button class="btn" id="start-btn">BEGIN ESCAPE</button>
@@ -378,16 +378,24 @@
             eyeLight.position.set(0, 2.5, 0.8);
             monsterGroup.add(eyeLight);
 
-            relocateMonster();
+            spawnMonsterAwayFromPlayer();
             scene.add(monsterGroup);
         }
 
-        function relocateMonster() {
-            // Randomly select floor and quadrant away from current player position
-            monsterFloor = Math.floor(Math.random() * 3) + 1;
-            const randomQuadX = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
-            const randomQuadZ = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
-            monsterGroup.position.set(randomQuadX, floorHeights[monsterFloor] - 1.8, randomQuadZ);
+        // Spawns/relocates the monster onto the current floor, guaranteed far away from player
+        function spawnMonsterAwayFromPlayer() {
+            monsterFloor = currentFloor;
+            const px = camera.position.x;
+            const pz = camera.position.z;
+
+            let mx, mz, distToPlayer;
+            do {
+                mx = (Math.random() > 0.5 ? 1 : -1) * (12 + Math.random() * 10);
+                mz = (Math.random() > 0.5 ? 1 : -1) * (12 + Math.random() * 10);
+                distToPlayer = Math.hypot(mx - px, mz - pz);
+            } while (distToPlayer < 18); // Ensures spawn distance is at least 18 units away
+
+            monsterGroup.position.set(mx, floorHeights[monsterFloor] - 1.8, mz);
         }
 
         function setupFullscreen() {
@@ -708,6 +716,9 @@
                 document.getElementById('floor-display').innerText = `FLOOR: ${currentFloor} / 3`;
                 document.getElementById('status-display').innerText = `TRANSITIONED TO FLOOR ${currentFloor}`;
 
+                // Force monster to follow onto the new floor and spawn away from player
+                spawnMonsterAwayFromPlayer();
+
                 setTimeout(() => {
                     if (!isGameOver) {
                         document.getElementById('status-display').innerText = `STATUS: EXPLORING`;
@@ -756,7 +767,8 @@
             isMonsterHidden = false;
             monsterCooldown = 0;
             monsterGroup.visible = true;
-            relocateMonster();
+            
+            spawnMonsterAwayFromPlayer();
 
             blinkTimer = 0;
             isBlinking = false;
@@ -772,6 +784,9 @@
 
             const overlay = document.getElementById('blink-overlay');
 
+            // Ensure monster floor always follows the player's current floor
+            monsterFloor = currentFloor;
+
             // --- 1. HANDLE BANISHED / HIDDEN COOLDOWN STATE ---
             if (isMonsterHidden) {
                 monsterCooldown -= delta;
@@ -780,11 +795,11 @@
                 isBlinking = false;
                 blinkTimer = 0;
 
-                // After 10-second wait timer expires, respawn monster to resume hunting
+                // After 10-second timer expires, respawn monster away on current floor to resume hunting
                 if (monsterCooldown <= 0) {
                     isMonsterHidden = false;
                     monsterGroup.visible = true;
-                    relocateMonster();
+                    spawnMonsterAwayFromPlayer();
                     document.getElementById('status-display').innerText = `STATUS: HUNTING RESUMED`;
                     setTimeout(() => {
                         if (!isGameOver) document.getElementById('status-display').innerText = `STATUS: EXPLORING`;
@@ -798,10 +813,9 @@
             const dy = camera.position.y - (monsterGroup.position.y + 1.8);
             const dz = camera.position.z - monsterGroup.position.z;
             const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            const sameFloor = (monsterFloor === currentFloor);
 
             // Touch Detection -> Trigger Game Over
-            if (sameFloor && dist3D < 1.4) {
+            if (dist3D < 1.4) {
                 triggerGameOver();
                 return;
             }
@@ -812,7 +826,7 @@
             const dot = camDir.dot(toMonster);
 
             let hasLineOfSight = false;
-            if (sameFloor && dot > 0.40) {
+            if (dot > 0.40) {
                 const raycaster = new THREE.Raycaster(
                     camera.position,
                     toMonster,
@@ -833,7 +847,7 @@
             }
 
             // --- 3. LOOK AT MECHANIC -> BANISH MONSTER FOR 10 SECONDS ---
-            if (sameFloor && hasLineOfSight && dot > 0.50) {
+            if (hasLineOfSight && dot > 0.50) {
                 isMonsterHidden = true;
                 monsterCooldown = 10.0; // 10 second wait before coming back
                 monsterGroup.visible = false;
@@ -846,16 +860,9 @@
             }
 
             // --- 4. HUNTING AI MOVEMENT ---
-            let speed = 5.8;
-            let targetX = camera.position.x;
-            let targetZ = camera.position.z;
-
-            if (!sameFloor) {
-                // If on another floor, wander central hub
-                targetX = 0;
-                targetZ = 0;
-                speed = 2.0;
-            }
+            const speed = 5.8;
+            const targetX = camera.position.x;
+            const targetZ = camera.position.z;
 
             const moveDirX = targetX - monsterGroup.position.x;
             const moveDirZ = targetZ - monsterGroup.position.z;
@@ -867,14 +874,11 @@
                 monsterGroup.rotation.y = Math.atan2(moveDirX, moveDirZ);
             }
 
-            monsterGroup.position.y = floorHeights[monsterFloor] - 1.8;
+            monsterGroup.position.y = floorHeights[currentFloor] - 1.8;
 
             // --- 5. DYNAMIC PROXIMITY BLINKING ---
-            let proximity = 0;
-            if (sameFloor) {
-                const maxRange = 32;
-                proximity = Math.max(0, Math.min(1, 1 - (dist3D / maxRange)));
-            }
+            const maxRange = 32;
+            const proximity = Math.max(0, Math.min(1, 1 - (dist3D / maxRange)));
 
             if (proximity > 0) {
                 const blinkInterval = 2.2 * Math.pow(0.045, proximity);
