@@ -59,7 +59,7 @@
             left: 50%;
             transform: translateX(-50%);
             color: #fbbf24;
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.85);
             padding: 8px 16px;
             border: 1px solid #fbbf24;
             font-weight: bold;
@@ -92,7 +92,7 @@
             font-size: 14px;
             color: #a3a3a3;
             margin-bottom: 8px;
-            max-width: 500px;
+            max-width: 520px;
             line-height: 1.4;
         }
         #instructions .btn {
@@ -109,12 +109,37 @@
             box-shadow: 0 0 15px rgba(153, 27, 27, 0.6);
         }
 
+        /* Top Right Control Bar */
+        #top-bar {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 20;
+            display: flex;
+            gap: 8px;
+        }
+        .top-btn {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid #dc2626;
+            color: #fff;
+            padding: 8px 14px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            touch-action: manipulation;
+        }
+        .top-btn:active {
+            background: #dc2626;
+        }
+
         /* --- Mobile Overlay Controls --- */
         #mobile-controls {
             position: absolute;
             inset: 0;
             z-index: 15;
-            pointer-events: none; /* Let touches pass through except on active elements */
+            pointer-events: none;
         }
         /* Left Touch Movement Area / Joystick */
         #joystick-base {
@@ -193,14 +218,18 @@
         <div id="status-display">STATUS: EXPLORING</div>
     </div>
 
-    <div id="interact-prompt">PRESS [E] OR TAP [USE] TO OPERATE ELEVATOR</div>
+    <div id="top-bar">
+        <button class="top-btn" id="fs-btn">FULLSCREEN</button>
+    </div>
+
+    <div id="interact-prompt">PRESS [E] / [SPACE] OR TAP [USE] TO OPERATE ELEVATOR</div>
 
     <!-- UI Start Overlay -->
     <div id="instructions">
         <h1>SANCTUM ⊞</h1>
         <p>Trapped in a 3-floor psychiatric grid facility.</p>
-        <p><strong>PC:</strong> WASD to move | Mouse to look | F Flashlight | E Interact | Shift Sprint</p>
-        <p><strong>MOBILE:</strong> Left Joystick to Move | Right Screen Drag to Look | Tap Buttons to Interact</p>
+        <p><strong>KEYBOARD / IPAD:</strong> WASD or Arrow keys to move | Mouse/Trackpad to look | F Light | E/Space Interact | Shift Sprint</p>
+        <p><strong>TOUCH SCREEN:</strong> Left Joystick to Move | Right Drag to Look | Tap On-Screen Buttons</p>
         <button class="btn" id="start-btn">BEGIN ESCAPE</button>
     </div>
 
@@ -230,14 +259,15 @@
         let prevTime = performance.now();
         const velocity = new THREE.Vector3();
         
-        // Player & Floor Positioning
+        // Player Positioning
         let currentFloor = 1;
         const floorHeights = { 1: 2, 2: 12, 3: 22 };
         let controlsActive = false;
         let pitch = 0, yaw = 0;
 
-        // Collision Geometry
+        // Collision Boxes Array
         const collidableBoxes = [];
+        const playerRadius = 0.6; // Player collision cylinder/box radius
 
         // Touch Input Tracking
         let lookTouchId = null;
@@ -277,11 +307,34 @@
             // 4. Construct 3-Story "⊞" Map
             buildAsylumStructure();
 
-            // 5. Input Initialization
-            setupDesktopControls();
-            setupMobileControls();
+            // 5. Input & Fullscreen Setup
+            setupKeyboardControls();
+            setupMobileTouchControls();
+            setupFullscreen();
 
             window.addEventListener('resize', onWindowResize);
+        }
+
+        // --- Fullscreen Toggle Logic ---
+        function setupFullscreen() {
+            const fsBtn = document.getElementById('fs-btn');
+            fsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    const docEl = document.documentElement;
+                    if (docEl.requestFullscreen) {
+                        docEl.requestFullscreen();
+                    } else if (docEl.webkitRequestFullscreen) { // Safari / iOS support
+                        docEl.webkitRequestFullscreen();
+                    }
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    }
+                }
+            });
         }
 
         // --- "⊞" Grid Facility Generation ---
@@ -294,7 +347,7 @@
             const mapSize = 56;
             const corridorWidth = 6;
             const wallHeight = 4;
-            const wallThickness = 0.4;
+            const wallThickness = 0.5;
 
             for (let f = 1; f <= 3; f++) {
                 const yBase = (f - 1) * 10;
@@ -361,6 +414,7 @@
             mesh.receiveShadow = true;
             scene.add(mesh);
 
+            // Compute exact Bounding Box for physical collision
             const box = new THREE.Box3().setFromObject(mesh);
             collidableBoxes.push(box);
         }
@@ -377,64 +431,67 @@
             }
         }
 
-        // --- Keyboard & Mouse (Desktop) Inputs ---
-        function setupDesktopControls() {
+        // --- Hardware Keyboard Logic (Desktop & Mobile Keyboards like iPad Magic Keyboard) ---
+        function setupKeyboardControls() {
             const startBtn = document.getElementById('start-btn');
             const instructions = document.getElementById('instructions');
 
             startBtn.addEventListener('click', () => {
                 instructions.style.display = 'none';
                 controlsActive = true;
-                // Attempt pointer lock for desktop
-                if (!('ontouchstart' in window)) {
+                // Pointer Lock for mouse/trackpad if supported
+                if (document.body.requestPointerLock && !('ontouchstart' in window)) {
                     document.body.requestPointerLock();
                 }
             });
 
             document.addEventListener('pointerlockchange', () => {
-                controlsActive = (document.pointerLockElement === document.body);
-                instructions.style.display = controlsActive ? 'none' : 'flex';
+                if (document.pointerLockElement === document.body) {
+                    controlsActive = true;
+                    instructions.style.display = 'none';
+                }
             });
 
             document.addEventListener('mousemove', (e) => {
-                if (!controlsActive || document.pointerLockElement !== document.body) return;
-                yaw -= e.movementX * 0.002;
-                pitch -= e.movementY * 0.002;
+                if (!controlsActive || (document.pointerLockElement !== document.body && !('ontouchstart' in window))) return;
+                yaw -= e.movementX * 0.0025;
+                pitch -= e.movementY * 0.0025;
                 pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch));
                 updateCameraRotation();
             });
 
-            document.addEventListener('keydown', (e) => {
+            // Global Keydown Handler (Supports WASD, Arrow keys, Space, Shift, E, F)
+            window.addEventListener('keydown', (e) => {
                 if (!controlsActive) return;
+
                 switch (e.code) {
-                    case 'KeyW': moveForward = true; break;
-                    case 'KeyS': moveBackward = true; break;
-                    case 'KeyA': moveLeft = true; break;
-                    case 'KeyD': moveRight = true; break;
-                    case 'ShiftLeft': isSprinting = true; break;
+                    case 'KeyW': case 'ArrowUp': moveForward = true; e.preventDefault(); break;
+                    case 'KeyS': case 'ArrowDown': moveBackward = true; e.preventDefault(); break;
+                    case 'KeyA': case 'ArrowLeft': moveLeft = true; e.preventDefault(); break;
+                    case 'KeyD': case 'ArrowRight': moveRight = true; e.preventDefault(); break;
+                    case 'ShiftLeft': case 'ShiftRight': isSprinting = true; break;
                     case 'KeyF': toggleFlashlight(); break;
-                    case 'KeyE': interactElevator(); break;
+                    case 'KeyE': case 'Space': interactElevator(); e.preventDefault(); break;
                 }
             });
 
-            document.addEventListener('keyup', (e) => {
+            window.addEventListener('keyup', (e) => {
                 switch (e.code) {
-                    case 'KeyW': moveForward = false; break;
-                    case 'KeyS': moveBackward = false; break;
-                    case 'KeyA': moveLeft = false; break;
-                    case 'KeyD': moveRight = false; break;
-                    case 'ShiftLeft': isSprinting = false; break;
+                    case 'KeyW': case 'ArrowUp': moveForward = false; break;
+                    case 'KeyS': case 'ArrowDown': moveBackward = false; break;
+                    case 'KeyA': case 'ArrowLeft': moveLeft = false; break;
+                    case 'KeyD': case 'ArrowRight': moveRight = false; break;
+                    case 'ShiftLeft': case 'ShiftRight': isSprinting = false; break;
                 }
             });
         }
 
-        // --- Touch Overlay (Mobile) Controls ---
-        function setupMobileControls() {
+        // --- Touch Screen Controls (Mobile & Tablets) ---
+        function setupMobileTouchControls() {
             const base = document.getElementById('joystick-base');
             const stick = document.getElementById('joystick-stick');
             const lookZone = document.getElementById('touch-look-zone');
 
-            // Virtual Joystick Logic
             let joystickTouchId = null;
             const baseRadius = 60;
 
@@ -483,8 +540,8 @@
                 }
 
                 stick.style.transform = `translate(${dx}px, ${dy}px)`;
-                joystickMoveX = dx / baseRadius; // Normalized [-1, 1]
-                joystickMoveZ = dy / baseRadius; // Normalized [-1, 1]
+                joystickMoveX = dx / baseRadius;
+                joystickMoveZ = dy / baseRadius;
             }
 
             // Touch Look Zone Dragging
@@ -526,7 +583,7 @@
             lookZone.addEventListener('touchend', resetLook);
             lookZone.addEventListener('touchcancel', resetLook);
 
-            // Action Buttons Setup
+            // Action Buttons
             document.getElementById('btn-light').addEventListener('click', toggleFlashlight);
             document.getElementById('btn-use').addEventListener('click', interactElevator);
             
@@ -563,6 +620,24 @@
             }
         }
 
+        // --- Full Physics Collision Detection against Walls ---
+        function checkWallCollision(posX, posZ) {
+            const currentY = floorHeights[currentFloor];
+            // Create a bounding box representing the player's physical footprint
+            const playerBox = new THREE.Box3(
+                new THREE.Vector3(posX - playerRadius, currentY - 1.5, posZ - playerRadius),
+                new THREE.Vector3(posX + playerRadius, currentY + 0.5, posZ + playerRadius)
+            );
+
+            // Test collision against all inner and outer wall boxes
+            for (let i = 0; i < collidableBoxes.length; i++) {
+                if (playerBox.intersectsBox(collidableBoxes[i])) {
+                    return true; // Collision detected
+                }
+            }
+            return false;
+        }
+
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -582,7 +657,7 @@
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
 
-                // Combine Keyboard and Touch Joystick Vectors
+                // Combine Keyboard and Touch Joystick Inputs
                 let inputZ = (Number(moveForward) - Number(moveBackward)) || -joystickMoveZ;
                 let inputX = (Number(moveRight) - Number(moveLeft)) || joystickMoveX;
 
@@ -601,10 +676,15 @@
                 const nextX = camera.position.x + (moveX * cos + moveZ * sin);
                 const nextZ = camera.position.z + (-moveX * sin + moveZ * cos);
 
-                // Collision Detection Bounds (-26.5 to +26.5)
-                const bound = 26.5;
-                if (Math.abs(nextX) < bound) camera.position.x = nextX;
-                if (Math.abs(nextZ) < bound) camera.position.z = nextZ;
+                // --- Sliding Physics Collision Checks ---
+                // Try moving on X axis
+                if (!checkWallCollision(nextX, camera.position.z)) {
+                    camera.position.x = nextX;
+                }
+                // Try moving on Z axis
+                if (!checkWallCollision(camera.position.x, nextZ)) {
+                    camera.position.z = nextZ;
+                }
 
                 camera.position.y = floorHeights[currentFloor];
 
