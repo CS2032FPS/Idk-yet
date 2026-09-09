@@ -109,7 +109,6 @@
             box-shadow: 0 0 15px rgba(153, 27, 27, 0.6);
         }
 
-        /* Top Right Control Bar */
         #top-bar {
             position: absolute;
             top: 12px;
@@ -134,14 +133,12 @@
             background: #dc2626;
         }
 
-        /* --- Mobile Overlay Controls --- */
         #mobile-controls {
             position: absolute;
             inset: 0;
             z-index: 15;
             pointer-events: none;
         }
-        /* Left Touch Movement Area / Joystick */
         #joystick-base {
             position: absolute;
             bottom: 30px;
@@ -165,7 +162,6 @@
             border-radius: 50%;
             pointer-events: none;
         }
-        /* Touch Look Zone (Right Screen Half) */
         #touch-look-zone {
             position: absolute;
             top: 0;
@@ -175,7 +171,6 @@
             pointer-events: auto;
             touch-action: none;
         }
-        /* Action Buttons */
         .action-buttons {
             position: absolute;
             bottom: 30px;
@@ -267,7 +262,7 @@
 
         // Collision Boxes Array
         const collidableBoxes = [];
-        const playerRadius = 0.6; // Player collision cylinder/box radius
+        const playerRadius = 0.6;
 
         // Touch Input Tracking
         let lookTouchId = null;
@@ -285,7 +280,9 @@
             scene.fog = new THREE.FogExp2(0x020204, 0.045);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, floorHeights[1], 22);
+            
+            // Safe spawn point offset in open central landing corridor
+            camera.position.set(2, floorHeights[1], 2);
 
             // 2. WebGL Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -315,7 +312,6 @@
             window.addEventListener('resize', onWindowResize);
         }
 
-        // --- Fullscreen Toggle Logic ---
         function setupFullscreen() {
             const fsBtn = document.getElementById('fs-btn');
             fsBtn.addEventListener('click', (e) => {
@@ -324,7 +320,7 @@
                     const docEl = document.documentElement;
                     if (docEl.requestFullscreen) {
                         docEl.requestFullscreen();
-                    } else if (docEl.webkitRequestFullscreen) { // Safari / iOS support
+                    } else if (docEl.webkitRequestFullscreen) {
                         docEl.webkitRequestFullscreen();
                     }
                 } else {
@@ -337,7 +333,6 @@
             });
         }
 
-        // --- "⊞" Grid Facility Generation ---
         function buildAsylumStructure() {
             const wallMat = new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: 0.9, metalness: 0.1 });
             const floorMat = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.8 });
@@ -352,7 +347,6 @@
             for (let f = 1; f <= 3; f++) {
                 const yBase = (f - 1) * 10;
 
-                // Ceiling & Floor Slabs
                 const floorGeo = new THREE.PlaneGeometry(mapSize, mapSize);
                 const floorMesh = new THREE.Mesh(floorGeo, floorMat);
                 floorMesh.rotation.x = -Math.PI / 2;
@@ -365,13 +359,11 @@
                 ceilMesh.position.set(0, yBase + wallHeight, 0);
                 scene.add(ceilMesh);
 
-                // Perimeter Walls (Outer Box of "⊞")
                 createWall(0, yBase + wallHeight/2, -mapSize/2, mapSize, wallHeight, wallThickness, wallMat);
                 createWall(0, yBase + wallHeight/2, mapSize/2, mapSize, wallHeight, wallThickness, wallMat);
                 createWall(-mapSize/2, yBase + wallHeight/2, 0, wallThickness, wallHeight, mapSize, wallMat);
                 createWall(mapSize/2, yBase + wallHeight/2, 0, wallThickness, wallHeight, mapSize, wallMat);
 
-                // Inner Cross Partitioning ("+" forming 4 Quadrants: NW, NE, SW, SE)
                 const quadSize = (mapSize - corridorWidth) / 2;
                 const offset = quadSize / 2 + corridorWidth / 2;
 
@@ -380,7 +372,6 @@
                 createWallWithDoor(0, yBase + wallHeight/2, -offset, wallThickness, wallHeight, quadSize, wallMat);
                 createWallWithDoor(0, yBase + wallHeight/2, offset, wallThickness, wallHeight, quadSize, wallMat);
 
-                // Quadrant Ambient Lights
                 const colors = [0x1e3a8a, 0x881337, 0x065f46, 0x78350f];
                 const quadPositions = [[-offset, -offset], [offset, -offset], [-offset, offset], [offset, offset]];
                 quadPositions.forEach((pos, idx) => {
@@ -389,14 +380,12 @@
                     scene.add(light);
                 });
 
-                // Elevator Platform Base
                 const elevatorGeo = new THREE.BoxGeometry(4.5, 0.2, 4.5);
                 const elevator = new THREE.Mesh(elevatorGeo, steelMat);
                 elevator.position.set(0, yBase + 0.1, 0);
                 scene.add(elevator);
             }
 
-            // Central Elevator Shaft Indicator Pillars
             for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 2) {
                 const px = Math.cos(angle + Math.PI/4) * 2.8;
                 const pz = Math.sin(angle + Math.PI/4) * 2.8;
@@ -414,7 +403,6 @@
             mesh.receiveShadow = true;
             scene.add(mesh);
 
-            // Compute exact Bounding Box for physical collision
             const box = new THREE.Box3().setFromObject(mesh);
             collidableBoxes.push(box);
         }
@@ -431,7 +419,6 @@
             }
         }
 
-        // --- Hardware Keyboard Logic (Desktop & Mobile Keyboards like iPad Magic Keyboard) ---
         function setupKeyboardControls() {
             const startBtn = document.getElementById('start-btn');
             const instructions = document.getElementById('instructions');
@@ -439,7 +426,6 @@
             startBtn.addEventListener('click', () => {
                 instructions.style.display = 'none';
                 controlsActive = true;
-                // Pointer Lock for mouse/trackpad if supported
                 if (document.body.requestPointerLock && !('ontouchstart' in window)) {
                     document.body.requestPointerLock();
                 }
@@ -460,7 +446,6 @@
                 updateCameraRotation();
             });
 
-            // Global Keydown Handler (Supports WASD, Arrow keys, Space, Shift, E, F)
             window.addEventListener('keydown', (e) => {
                 if (!controlsActive) return;
 
@@ -486,7 +471,6 @@
             });
         }
 
-        // --- Touch Screen Controls (Mobile & Tablets) ---
         function setupMobileTouchControls() {
             const base = document.getElementById('joystick-base');
             const stick = document.getElementById('joystick-stick');
@@ -544,7 +528,6 @@
                 joystickMoveZ = dy / baseRadius;
             }
 
-            // Touch Look Zone Dragging
             lookZone.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 if (lookTouchId === null) {
@@ -583,7 +566,6 @@
             lookZone.addEventListener('touchend', resetLook);
             lookZone.addEventListener('touchcancel', resetLook);
 
-            // Action Buttons
             document.getElementById('btn-light').addEventListener('click', toggleFlashlight);
             document.getElementById('btn-use').addEventListener('click', interactElevator);
             
@@ -608,7 +590,7 @@
         function interactElevator() {
             const distToCenter = Math.hypot(camera.position.x, camera.position.z);
             if (distToCenter < 3.8) {
-                currentFloor = (currentFloor % 3) + 1; // 1 -> 2 -> 3 -> 1
+                currentFloor = (currentFloor % 3) + 1;
                 camera.position.y = floorHeights[currentFloor];
 
                 document.getElementById('floor-display').innerText = `FLOOR: ${currentFloor} / 3`;
@@ -620,19 +602,16 @@
             }
         }
 
-        // --- Full Physics Collision Detection against Walls ---
         function checkWallCollision(posX, posZ) {
             const currentY = floorHeights[currentFloor];
-            // Create a bounding box representing the player's physical footprint
             const playerBox = new THREE.Box3(
                 new THREE.Vector3(posX - playerRadius, currentY - 1.5, posZ - playerRadius),
                 new THREE.Vector3(posX + playerRadius, currentY + 0.5, posZ + playerRadius)
             );
 
-            // Test collision against all inner and outer wall boxes
             for (let i = 0; i < collidableBoxes.length; i++) {
                 if (playerBox.intersectsBox(collidableBoxes[i])) {
-                    return true; // Collision detected
+                    return true;
                 }
             }
             return false;
@@ -644,7 +623,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // --- Main Frame Loop & Physics ---
         function animate() {
             requestAnimationFrame(animate);
 
@@ -653,11 +631,9 @@
             prevTime = time;
 
             if (controlsActive) {
-                // Decay velocity
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
 
-                // Combine Keyboard and Touch Joystick Inputs
                 let inputZ = (Number(moveForward) - Number(moveBackward)) || -joystickMoveZ;
                 let inputX = (Number(moveRight) - Number(moveLeft)) || joystickMoveX;
 
@@ -666,7 +642,6 @@
                 if (inputZ !== 0) velocity.z -= inputZ * speed * 10.0 * delta;
                 if (inputX !== 0) velocity.x += inputX * speed * 10.0 * delta;
 
-                // Compute Move Delta relative to Camera Yaw Angle
                 const moveX = velocity.x * delta;
                 const moveZ = velocity.z * delta;
 
@@ -676,24 +651,19 @@
                 const nextX = camera.position.x + (moveX * cos + moveZ * sin);
                 const nextZ = camera.position.z + (-moveX * sin + moveZ * cos);
 
-                // --- Sliding Physics Collision Checks ---
-                // Try moving on X axis
                 if (!checkWallCollision(nextX, camera.position.z)) {
                     camera.position.x = nextX;
                 }
-                // Try moving on Z axis
                 if (!checkWallCollision(camera.position.x, nextZ)) {
                     camera.position.z = nextZ;
                 }
 
                 camera.position.y = floorHeights[currentFloor];
 
-                // Flashlight Spotlight Tracking
                 flashlight.position.copy(camera.position);
                 const targetVec = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                 flashlight.target.position.copy(camera.position).add(targetVec);
 
-                // Check Elevator Proximity
                 const distToCenter = Math.hypot(camera.position.x, camera.position.z);
                 const prompt = document.getElementById('interact-prompt');
                 if (distToCenter < 3.8) {
