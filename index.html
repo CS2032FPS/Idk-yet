@@ -29,6 +29,15 @@
             left: 0;
             z-index: 1;
         }
+        #blink-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: #000;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 5;
+            transition: opacity 0.05s ease-out;
+        }
         #crosshair {
             position: absolute;
             top: 50%; left: 50%;
@@ -205,6 +214,7 @@
 </head>
 <body>
 
+    <div id="blink-overlay"></div>
     <div id="crosshair"></div>
     
     <div id="hud">
@@ -260,6 +270,16 @@
         let controlsActive = false;
         let pitch = 0, yaw = 0;
 
+        // Monster State
+        let monsterGroup, monsterEyeLeft, monsterEyeRight;
+        let monsterFloor = 1;
+        let isScrambling = false;
+        let scrambleTimer = 0;
+        let nextFloorChangeTime = 0;
+        let blinkTimer = 0;
+        let isBlinking = false;
+        let blinkDuration = 0.15;
+
         // Collision Boxes Array
         const collidableBoxes = [];
         const playerRadius = 0.6;
@@ -304,12 +324,48 @@
             // 4. Construct 3-Story Map with Individual Patient Rooms
             buildAsylumStructure();
 
-            // 5. Input & Fullscreen Setup
+            // 5. Construct Monster
+            buildMonster();
+
+            // 6. Input & Fullscreen Setup
             setupKeyboardControls();
             setupMobileTouchControls();
             setupFullscreen();
 
             window.addEventListener('resize', onWindowResize);
+        }
+
+        function buildMonster() {
+            monsterGroup = new THREE.Group();
+
+            // Main Black Cylinder Body
+            const bodyMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const bodyGeo = new THREE.CylinderGeometry(0.7, 0.7, 3.2, 16);
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 1.6;
+            monsterGroup.add(body);
+
+            // Glowing Red Eyes
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const eyeGeo = new THREE.SphereGeometry(0.12, 8, 8);
+
+            monsterEyeLeft = new THREE.Mesh(eyeGeo, eyeMat);
+            monsterEyeLeft.position.set(-0.25, 2.5, 0.65);
+            monsterGroup.add(monsterEyeLeft);
+
+            monsterEyeRight = new THREE.Mesh(eyeGeo, eyeMat);
+            monsterEyeRight.position.set(0.25, 2.5, 0.65);
+            monsterGroup.add(monsterEyeRight);
+
+            // Eye Point Lights
+            const eyeLight = new THREE.PointLight(0xff0000, 1.5, 4);
+            eyeLight.position.set(0, 2.5, 0.8);
+            monsterGroup.add(eyeLight);
+
+            // Start monster on floor 1 opposite corner
+            monsterFloor = 1;
+            monsterGroup.position.set(-18, floorHeights[monsterFloor] - 1.8, -18);
+            scene.add(monsterGroup);
         }
 
         function setupFullscreen() {
@@ -644,6 +700,133 @@
             return false;
         }
 
+        function updateMonsterLogic(delta, time) {
+            if (!controlsActive) return;
+
+            // 1. Check direct distance to player across 3D space
+            const dx = camera.position.x - monsterGroup.position.x;
+            const dy = camera.position.y - (monsterGroup.position.y + 1.8);
+            const dz = camera.position.z - monsterGroup.position.z;
+            const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const sameFloor = (monsterFloor === currentFloor);
+
+            // 2. Check if Player is directly staring at Monster
+            const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+            const toMonster = new THREE.Vector3(dx, dy, dz).normalize();
+            const dot = camDir.dot(toMonster);
+
+            // Raycast line-of-sight check to ensure monster isn't behind a wall
+            let hasLineOfSight = false;
+            if (sameFloor && dot > 0.55) {
+                const raycaster = new THREE.Raycaster(
+                    camera.position,
+                    toMonster,
+                    0.1,
+                    dist3D + 1
+                );
+                const intersects = raycaster.intersectObjects(scene.children, true);
+                if (intersects.length > 0) {
+                    // If nearest object hit is part of the monster
+                    let obj = intersects[0].object;
+                    while (obj.parent && obj.parent !== scene) {
+                        if (obj.parent === monsterGroup) {
+                            hasLineOfSight = true;
+                            break;
+                        }
+                        obj = obj.parent;
+                    }
+                }
+            }
+
+            // Trigger Scramble state if player looks directly at monster
+            if (sameFloor && hasLineOfSight && dot > 0.70 && !isScrambling) {
+                isScrambling = true;
+                scrambleTimer = 2.5; // Scramble away rapidly for 2.5s
+            }
+
+            // 3. Periodic Floor Change Logic
+            if (time > nextFloorChangeTime) {
+                // Pick a new floor randomly
+                const availableFloors = [1, 2, 3].filter(f => f !== monsterFloor);
+                monsterFloor = availableFloors[Math.floor(Math.random() * availableFloors.length)];
+                
+                // Spawn in random open quadrant on new floor
+                const randomQuadX = (Math.random() > 0.5 ? 1 : -1) * 16;
+                const randomQuadZ = (Math.random() > 0.5 ? 1 : -1) * 16;
+                monsterGroup.position.set(randomQuadX, floorHeights[monsterFloor] - 1.8, randomQuadZ);
+
+                // Reset floor change timer (change floors every 15-25 seconds)
+                nextFloorChangeTime = time + 15000 + Math.random() * 10000;
+            }
+
+            // 4. Movement AI
+            let speed = 4.5;
+            let targetX = camera.position.x;
+            let targetZ = camera.position.z;
+
+            if (isScrambling) {
+                speed = 18.0; // Rapid scramble speed
+                // Run directly away from player
+                targetX = monsterGroup.position.x - dx * 2;
+                targetZ = monsterGroup.position.z - dz * 2;
+
+                scrambleTimer -= delta;
+                if (scrambleTimer <= 0) {
+                    isScrambling = false;
+                    // Change floor immediately after scrambling away
+                    nextFloorChangeTime = time;
+                }
+            } else if (!sameFloor) {
+                // If on a different floor, wander around elevator hub
+                targetX = 0;
+                targetZ = 0;
+                speed = 2.0;
+            }
+
+            // Move towards target position
+            const moveDirX = targetX - monsterGroup.position.x;
+            const moveDirZ = targetZ - monsterGroup.position.z;
+            const dist2D = Math.hypot(moveDirX, moveDirZ);
+
+            if (dist2D > 0.5) {
+                monsterGroup.position.x += (moveDirX / dist2D) * speed * delta;
+                monsterGroup.position.z += (moveDirZ / dist2D) * speed * delta;
+                monsterGroup.rotation.y = Math.atan2(moveDirX, moveDirZ);
+            }
+
+            monsterGroup.position.y = floorHeights[monsterFloor] - 1.8;
+
+            // 5. Dynamic Blinking Mechanics based on Proximity
+            const overlay = document.getElementById('blink-overlay');
+            
+            // Calculate proximity factor (0 when far or on different floor, 1 when right next to player)
+            let proximity = 0;
+            if (sameFloor) {
+                const maxRange = 32;
+                proximity = Math.max(0, Math.min(1, 1 - (dist3D / maxRange)));
+            }
+
+            if (proximity > 0) {
+                // Blink rate scales exponentially with distance: 2.5s down to 0.12s per blink interval
+                const blinkInterval = 2.5 * Math.pow(0.048, proximity);
+                blinkTimer += delta;
+
+                if (!isBlinking && blinkTimer >= blinkInterval) {
+                    isBlinking = true;
+                    blinkTimer = 0;
+                    overlay.style.opacity = '1';
+                } else if (isBlinking && blinkTimer >= blinkDuration) {
+                    isBlinking = false;
+                    blinkTimer = 0;
+                    overlay.style.opacity = '0';
+                }
+            } else {
+                isBlinking = false;
+                overlay.style.opacity = '0';
+                blinkTimer = 0;
+            }
+        }
+
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -698,6 +881,9 @@
                 } else {
                     prompt.style.display = 'none';
                 }
+
+                // Monster behavior update
+                updateMonsterLogic(delta, time);
             }
 
             renderer.render(scene, camera);
