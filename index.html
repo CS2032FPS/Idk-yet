@@ -78,7 +78,7 @@
             text-align: center;
             border-radius: 4px;
         }
-        #instructions {
+        #instructions, #game-over {
             position: absolute;
             inset: 0;
             background: rgba(5, 5, 5, 0.95);
@@ -91,20 +91,25 @@
             text-align: center;
             padding: 20px;
         }
-        #instructions h1 {
+        #game-over {
+            display: none;
+            background: rgba(20, 0, 0, 0.96);
+            z-index: 40;
+        }
+        #instructions h1, #game-over h1 {
             color: #dc2626;
             font-size: 42px;
             margin-bottom: 12px;
             letter-spacing: 4px;
         }
-        #instructions p {
+        #instructions p, #game-over p {
             font-size: 14px;
             color: #a3a3a3;
             margin-bottom: 8px;
             max-width: 520px;
             line-height: 1.4;
         }
-        #instructions .btn {
+        .btn {
             margin-top: 20px;
             padding: 14px 36px;
             background: #991b1b;
@@ -233,9 +238,17 @@
     <div id="instructions">
         <h1>SANCTUM ⊞</h1>
         <p>Trapped in a 3-floor psychiatric grid facility.</p>
+        <p><strong>WARNING:</strong> Look directly at the shadow entity to make it scramble away. Do not let it touch you.</p>
         <p><strong>KEYBOARD / IPAD:</strong> WASD or Arrow keys to move | Mouse/Trackpad to look | F Light | E/Space Interact | Shift Sprint</p>
         <p><strong>TOUCH SCREEN:</strong> Left Joystick to Move | Right Drag to Look | Tap On-Screen Buttons</p>
         <button class="btn" id="start-btn">BEGIN ESCAPE</button>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over">
+        <h1>YOU WERE CAUGHT</h1>
+        <p>The anomaly consumed you in the dark.</p>
+        <button class="btn" id="restart-btn">TRY AGAIN</button>
     </div>
 
     <!-- Mobile Virtual Controls -->
@@ -268,6 +281,7 @@
         let currentFloor = 1;
         const floorHeights = { 1: 2, 2: 12, 3: 22 };
         let controlsActive = false;
+        let isGameOver = false;
         let pitch = 0, yaw = 0;
 
         // Monster State
@@ -332,6 +346,9 @@
             setupMobileTouchControls();
             setupFullscreen();
 
+            // 7. Setup Game Over / Restart Handlers
+            document.getElementById('restart-btn').addEventListener('click', restartGame);
+
             window.addEventListener('resize', onWindowResize);
         }
 
@@ -362,10 +379,16 @@
             eyeLight.position.set(0, 2.5, 0.8);
             monsterGroup.add(eyeLight);
 
-            // Start monster on floor 1 opposite corner
-            monsterFloor = 1;
-            monsterGroup.position.set(-18, floorHeights[monsterFloor] - 1.8, -18);
+            relocateMonster();
             scene.add(monsterGroup);
+        }
+
+        function relocateMonster() {
+            // Randomly select floor and quadrant away from origin
+            monsterFloor = Math.floor(Math.random() * 3) + 1;
+            const randomQuadX = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
+            const randomQuadZ = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
+            monsterGroup.position.set(randomQuadX, floorHeights[monsterFloor] - 1.8, randomQuadZ);
         }
 
         function setupFullscreen() {
@@ -516,13 +539,15 @@
 
             document.addEventListener('pointerlockchange', () => {
                 if (document.pointerLockElement === document.body) {
-                    controlsActive = true;
-                    instructions.style.display = 'none';
+                    if (!isGameOver) {
+                        controlsActive = true;
+                        instructions.style.display = 'none';
+                    }
                 }
             });
 
             document.addEventListener('mousemove', (e) => {
-                if (!controlsActive || (document.pointerLockElement !== document.body && !('ontouchstart' in window))) return;
+                if (!controlsActive || isGameOver || (document.pointerLockElement !== document.body && !('ontouchstart' in window))) return;
                 yaw -= e.movementX * 0.0025;
                 pitch -= e.movementY * 0.0025;
                 pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch));
@@ -530,7 +555,7 @@
             });
 
             window.addEventListener('keydown', (e) => {
-                if (!controlsActive) return;
+                if (!controlsActive || isGameOver) return;
 
                 switch (e.code) {
                     case 'KeyW': case 'ArrowUp': moveForward = true; e.preventDefault(); break;
@@ -564,6 +589,7 @@
 
             base.addEventListener('touchstart', (e) => {
                 e.preventDefault();
+                if (isGameOver) return;
                 const touch = e.changedTouches[0];
                 joystickTouchId = touch.identifier;
                 updateJoystick(touch);
@@ -571,6 +597,7 @@
 
             base.addEventListener('touchmove', (e) => {
                 e.preventDefault();
+                if (isGameOver) return;
                 for (let touch of e.changedTouches) {
                     if (touch.identifier === joystickTouchId) {
                         updateJoystick(touch);
@@ -613,6 +640,7 @@
 
             lookZone.addEventListener('touchstart', (e) => {
                 e.preventDefault();
+                if (isGameOver) return;
                 if (lookTouchId === null) {
                     const touch = e.changedTouches[0];
                     lookTouchId = touch.identifier;
@@ -623,6 +651,7 @@
 
             lookZone.addEventListener('touchmove', (e) => {
                 e.preventDefault();
+                if (isGameOver) return;
                 for (let touch of e.changedTouches) {
                     if (touch.identifier === lookTouchId) {
                         const deltaX = touch.clientX - lastTouchX;
@@ -671,6 +700,7 @@
         }
 
         function interactElevator() {
+            if (isGameOver) return;
             const distToCenter = Math.hypot(camera.position.x, camera.position.z);
             if (distToCenter < 3.8) {
                 currentFloor = (currentFloor % 3) + 1;
@@ -680,7 +710,9 @@
                 document.getElementById('status-display').innerText = `TRANSITIONED TO FLOOR ${currentFloor}`;
 
                 setTimeout(() => {
-                    document.getElementById('status-display').innerText = `STATUS: EXPLORING`;
+                    if (!isGameOver) {
+                        document.getElementById('status-display').innerText = `STATUS: EXPLORING`;
+                    }
                 }, 2000);
             }
         }
@@ -700,24 +732,63 @@
             return false;
         }
 
-        function updateMonsterLogic(delta, time) {
-            if (!controlsActive) return;
+        function triggerGameOver() {
+            isGameOver = true;
+            controlsActive = false;
+            document.getElementById('game-over').style.display = 'flex';
+            document.getElementById('blink-overlay').style.opacity = '0';
+            if (document.exitPointerLock) {
+                document.exitPointerLock();
+            }
+        }
 
-            // 1. Check direct distance to player across 3D space
+        function restartGame() {
+            isGameOver = false;
+            currentFloor = 1;
+            camera.position.set(2, floorHeights[1], 2);
+            yaw = 0;
+            pitch = 0;
+            updateCameraRotation();
+
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('floor-display').innerText = `FLOOR: 1 / 3`;
+            document.getElementById('status-display').innerText = `STATUS: EXPLORING`;
+
+            relocateMonster();
+            isScrambling = false;
+            scrambleTimer = 0;
+            blinkTimer = 0;
+            isBlinking = false;
+
+            controlsActive = true;
+            if (document.body.requestPointerLock && !('ontouchstart' in window)) {
+                document.body.requestPointerLock();
+            }
+        }
+
+        function updateMonsterLogic(delta, time) {
+            if (!controlsActive || isGameOver) return;
+
+            // 1. Distance calculations in 3D
             const dx = camera.position.x - monsterGroup.position.x;
             const dy = camera.position.y - (monsterGroup.position.y + 1.8);
             const dz = camera.position.z - monsterGroup.position.z;
             const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
             const sameFloor = (monsterFloor === currentFloor);
 
+            // Touch Detection -> Trigger Game Over if Monster touches player
+            if (sameFloor && dist3D < 1.4) {
+                triggerGameOver();
+                return;
+            }
+
             // 2. Check if Player is directly staring at Monster
             const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
             const toMonster = new THREE.Vector3(dx, dy, dz).normalize();
             const dot = camDir.dot(toMonster);
 
-            // Raycast line-of-sight check to ensure monster isn't behind a wall
             let hasLineOfSight = false;
-            if (sameFloor && dot > 0.55) {
+            if (sameFloor && dot > 0.45) {
                 const raycaster = new THREE.Raycaster(
                     camera.position,
                     toMonster,
@@ -726,7 +797,6 @@
                 );
                 const intersects = raycaster.intersectObjects(scene.children, true);
                 if (intersects.length > 0) {
-                    // If nearest object hit is part of the monster
                     let obj = intersects[0].object;
                     while (obj.parent && obj.parent !== scene) {
                         if (obj.parent === monsterGroup) {
@@ -738,57 +808,58 @@
                 }
             }
 
-            // Trigger Scramble state if player looks directly at monster
-            if (sameFloor && hasLineOfSight && dot > 0.70 && !isScrambling) {
+            // Stare Mechanic -> Staring forces the monster to scramble away immediately
+            if (sameFloor && hasLineOfSight && dot > 0.60) {
                 isScrambling = true;
-                scrambleTimer = 2.5; // Scramble away rapidly for 2.5s
+                scrambleTimer = 2.0; // Rapid scramble away
             }
 
-            // 3. Periodic Floor Change Logic
+            // 3. Periodic Automatic Story/Floor Change Logic
             if (time > nextFloorChangeTime) {
-                // Pick a new floor randomly
                 const availableFloors = [1, 2, 3].filter(f => f !== monsterFloor);
                 monsterFloor = availableFloors[Math.floor(Math.random() * availableFloors.length)];
                 
-                // Spawn in random open quadrant on new floor
-                const randomQuadX = (Math.random() > 0.5 ? 1 : -1) * 16;
-                const randomQuadZ = (Math.random() > 0.5 ? 1 : -1) * 16;
+                const randomQuadX = (Math.random() > 0.5 ? 1 : -1) * (12 + Math.random() * 10);
+                const randomQuadZ = (Math.random() > 0.5 ? 1 : -1) * (12 + Math.random() * 10);
                 monsterGroup.position.set(randomQuadX, floorHeights[monsterFloor] - 1.8, randomQuadZ);
 
-                // Reset floor change timer (change floors every 15-25 seconds)
-                nextFloorChangeTime = time + 15000 + Math.random() * 10000;
+                nextFloorChangeTime = time + 14000 + Math.random() * 10000;
             }
 
             // 4. Movement AI
-            let speed = 4.5;
+            let speed = 5.2;
             let targetX = camera.position.x;
             let targetZ = camera.position.z;
 
             if (isScrambling) {
-                speed = 18.0; // Rapid scramble speed
-                // Run directly away from player
-                targetX = monsterGroup.position.x - dx * 2;
-                targetZ = monsterGroup.position.z - dz * 2;
+                speed = 22.0; // High speed scramble away
+                targetX = monsterGroup.position.x - dx * 3;
+                targetZ = monsterGroup.position.z - dz * 3;
 
                 scrambleTimer -= delta;
                 if (scrambleTimer <= 0) {
                     isScrambling = false;
-                    // Change floor immediately after scrambling away
-                    nextFloorChangeTime = time;
+                    // Immediately switch floor after scrambling away from gaze
+                    const availableFloors = [1, 2, 3].filter(f => f !== monsterFloor);
+                    monsterFloor = availableFloors[Math.floor(Math.random() * availableFloors.length)];
+                    monsterGroup.position.set(
+                        (Math.random() > 0.5 ? 1 : -1) * 16,
+                        floorHeights[monsterFloor] - 1.8,
+                        (Math.random() > 0.5 ? 1 : -1) * 16
+                    );
                 }
             } else if (!sameFloor) {
-                // If on a different floor, wander around elevator hub
+                // If on another floor, move toward central hub area
                 targetX = 0;
                 targetZ = 0;
                 speed = 2.0;
             }
 
-            // Move towards target position
             const moveDirX = targetX - monsterGroup.position.x;
             const moveDirZ = targetZ - monsterGroup.position.z;
             const dist2D = Math.hypot(moveDirX, moveDirZ);
 
-            if (dist2D > 0.5) {
+            if (dist2D > 0.3) {
                 monsterGroup.position.x += (moveDirX / dist2D) * speed * delta;
                 monsterGroup.position.z += (moveDirZ / dist2D) * speed * delta;
                 monsterGroup.rotation.y = Math.atan2(moveDirX, moveDirZ);
@@ -798,8 +869,6 @@
 
             // 5. Dynamic Blinking Mechanics based on Proximity
             const overlay = document.getElementById('blink-overlay');
-            
-            // Calculate proximity factor (0 when far or on different floor, 1 when right next to player)
             let proximity = 0;
             if (sameFloor) {
                 const maxRange = 32;
@@ -807,8 +876,7 @@
             }
 
             if (proximity > 0) {
-                // Blink rate scales exponentially with distance: 2.5s down to 0.12s per blink interval
-                const blinkInterval = 2.5 * Math.pow(0.048, proximity);
+                const blinkInterval = 2.2 * Math.pow(0.045, proximity);
                 blinkTimer += delta;
 
                 if (!isBlinking && blinkTimer >= blinkInterval) {
@@ -840,7 +908,7 @@
             const delta = (time - prevTime) / 1000;
             prevTime = time;
 
-            if (controlsActive) {
+            if (controlsActive && !isGameOver) {
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
 
@@ -882,7 +950,6 @@
                     prompt.style.display = 'none';
                 }
 
-                // Monster behavior update
                 updateMonsterLogic(delta, time);
             }
 
