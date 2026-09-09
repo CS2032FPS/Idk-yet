@@ -238,7 +238,7 @@
     <div id="instructions">
         <h1>SANCTUM ⊞</h1>
         <p>Trapped in a 3-floor psychiatric grid facility.</p>
-        <p><strong>WARNING:</strong> Look directly at the shadow entity to make it scramble away. Do not let it touch you.</p>
+        <p><strong>WARNING:</strong> Stare directly at the entity to banish it for 10 seconds. Do not let it touch you.</p>
         <p><strong>KEYBOARD / IPAD:</strong> WASD or Arrow keys to move | Mouse/Trackpad to look | F Light | E/Space Interact | Shift Sprint</p>
         <p><strong>TOUCH SCREEN:</strong> Left Joystick to Move | Right Drag to Look | Tap On-Screen Buttons</p>
         <button class="btn" id="start-btn">BEGIN ESCAPE</button>
@@ -287,9 +287,8 @@
         // Monster State
         let monsterGroup, monsterEyeLeft, monsterEyeRight;
         let monsterFloor = 1;
-        let isScrambling = false;
-        let scrambleTimer = 0;
-        let nextFloorChangeTime = 0;
+        let isMonsterHidden = false;
+        let monsterCooldown = 0;
         let blinkTimer = 0;
         let isBlinking = false;
         let blinkDuration = 0.15;
@@ -384,7 +383,7 @@
         }
 
         function relocateMonster() {
-            // Randomly select floor and quadrant away from origin
+            // Randomly select floor and quadrant away from current player position
             monsterFloor = Math.floor(Math.random() * 3) + 1;
             const randomQuadX = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
             const randomQuadZ = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
@@ -754,9 +753,11 @@
             document.getElementById('floor-display').innerText = `FLOOR: 1 / 3`;
             document.getElementById('status-display').innerText = `STATUS: EXPLORING`;
 
+            isMonsterHidden = false;
+            monsterCooldown = 0;
+            monsterGroup.visible = true;
             relocateMonster();
-            isScrambling = false;
-            scrambleTimer = 0;
+
             blinkTimer = 0;
             isBlinking = false;
 
@@ -766,29 +767,52 @@
             }
         }
 
-        function updateMonsterLogic(delta, time) {
+        function updateMonsterLogic(delta) {
             if (!controlsActive || isGameOver) return;
 
-            // 1. Distance calculations in 3D
+            const overlay = document.getElementById('blink-overlay');
+
+            // --- 1. HANDLE BANISHED / HIDDEN COOLDOWN STATE ---
+            if (isMonsterHidden) {
+                monsterCooldown -= delta;
+                monsterGroup.visible = false;
+                overlay.style.opacity = '0';
+                isBlinking = false;
+                blinkTimer = 0;
+
+                // After 10-second wait timer expires, respawn monster to resume hunting
+                if (monsterCooldown <= 0) {
+                    isMonsterHidden = false;
+                    monsterGroup.visible = true;
+                    relocateMonster();
+                    document.getElementById('status-display').innerText = `STATUS: HUNTING RESUMED`;
+                    setTimeout(() => {
+                        if (!isGameOver) document.getElementById('status-display').innerText = `STATUS: EXPLORING`;
+                    }, 2000);
+                }
+                return;
+            }
+
+            // --- 2. ACTIVE MONSTER DISTANCE & SIGHT CHECKS ---
             const dx = camera.position.x - monsterGroup.position.x;
             const dy = camera.position.y - (monsterGroup.position.y + 1.8);
             const dz = camera.position.z - monsterGroup.position.z;
             const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
             const sameFloor = (monsterFloor === currentFloor);
 
-            // Touch Detection -> Trigger Game Over if Monster touches player
+            // Touch Detection -> Trigger Game Over
             if (sameFloor && dist3D < 1.4) {
                 triggerGameOver();
                 return;
             }
 
-            // 2. Check if Player is directly staring at Monster
+            // Stare/Look Detection
             const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
             const toMonster = new THREE.Vector3(dx, dy, dz).normalize();
             const dot = camDir.dot(toMonster);
 
             let hasLineOfSight = false;
-            if (sameFloor && dot > 0.45) {
+            if (sameFloor && dot > 0.40) {
                 const raycaster = new THREE.Raycaster(
                     camera.position,
                     toMonster,
@@ -808,48 +832,26 @@
                 }
             }
 
-            // Stare Mechanic -> Staring forces the monster to scramble away immediately
-            if (sameFloor && hasLineOfSight && dot > 0.60) {
-                isScrambling = true;
-                scrambleTimer = 2.0; // Rapid scramble away
+            // --- 3. LOOK AT MECHANIC -> BANISH MONSTER FOR 10 SECONDS ---
+            if (sameFloor && hasLineOfSight && dot > 0.50) {
+                isMonsterHidden = true;
+                monsterCooldown = 10.0; // 10 second wait before coming back
+                monsterGroup.visible = false;
+                overlay.style.opacity = '0';
+                isBlinking = false;
+                blinkTimer = 0;
+
+                document.getElementById('status-display').innerText = `STATUS: ENTITY BANISHED (10s)`;
+                return;
             }
 
-            // 3. Periodic Automatic Story/Floor Change Logic
-            if (time > nextFloorChangeTime) {
-                const availableFloors = [1, 2, 3].filter(f => f !== monsterFloor);
-                monsterFloor = availableFloors[Math.floor(Math.random() * availableFloors.length)];
-                
-                const randomQuadX = (Math.random() > 0.5 ? 1 : -1) * (12 + Math.random() * 10);
-                const randomQuadZ = (Math.random() > 0.5 ? 1 : -1) * (12 + Math.random() * 10);
-                monsterGroup.position.set(randomQuadX, floorHeights[monsterFloor] - 1.8, randomQuadZ);
-
-                nextFloorChangeTime = time + 14000 + Math.random() * 10000;
-            }
-
-            // 4. Movement AI
-            let speed = 5.2;
+            // --- 4. HUNTING AI MOVEMENT ---
+            let speed = 5.8;
             let targetX = camera.position.x;
             let targetZ = camera.position.z;
 
-            if (isScrambling) {
-                speed = 22.0; // High speed scramble away
-                targetX = monsterGroup.position.x - dx * 3;
-                targetZ = monsterGroup.position.z - dz * 3;
-
-                scrambleTimer -= delta;
-                if (scrambleTimer <= 0) {
-                    isScrambling = false;
-                    // Immediately switch floor after scrambling away from gaze
-                    const availableFloors = [1, 2, 3].filter(f => f !== monsterFloor);
-                    monsterFloor = availableFloors[Math.floor(Math.random() * availableFloors.length)];
-                    monsterGroup.position.set(
-                        (Math.random() > 0.5 ? 1 : -1) * 16,
-                        floorHeights[monsterFloor] - 1.8,
-                        (Math.random() > 0.5 ? 1 : -1) * 16
-                    );
-                }
-            } else if (!sameFloor) {
-                // If on another floor, move toward central hub area
+            if (!sameFloor) {
+                // If on another floor, wander central hub
                 targetX = 0;
                 targetZ = 0;
                 speed = 2.0;
@@ -867,8 +869,7 @@
 
             monsterGroup.position.y = floorHeights[monsterFloor] - 1.8;
 
-            // 5. Dynamic Blinking Mechanics based on Proximity
-            const overlay = document.getElementById('blink-overlay');
+            // --- 5. DYNAMIC PROXIMITY BLINKING ---
             let proximity = 0;
             if (sameFloor) {
                 const maxRange = 32;
@@ -950,7 +951,7 @@
                     prompt.style.display = 'none';
                 }
 
-                updateMonsterLogic(delta, time);
+                updateMonsterLogic(delta);
             }
 
             renderer.render(scene, camera);
