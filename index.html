@@ -238,7 +238,7 @@
     <div id="instructions">
         <h1>SANCTUM ⊞</h1>
         <p>Trapped in a 3-floor psychiatric grid facility.</p>
-        <p><strong>WARNING:</strong> Look directly at the entity to banish it for 10 seconds. Rapid vision blinks signal proximity!</p>
+        <p><strong>WARNING:</strong> Maintain direct line of sight on the entity for 1 second to banish it. Rapid vision blinks signal proximity!</p>
         <p><strong>KEYBOARD / IPAD:</strong> WASD or Arrow keys to move | Mouse/Trackpad to look | F Light | E/Space Interact | Shift Sprint</p>
         <p><strong>TOUCH SCREEN:</strong> Left Joystick to Move | Right Drag to Look | Tap On-Screen Buttons</p>
         <button class="btn" id="start-btn">BEGIN ESCAPE</button>
@@ -289,6 +289,7 @@
         let monsterFloor = 1;
         let isMonsterHidden = false;
         let monsterCooldown = 0;
+        let stareTimer = 0; // Tracks duration of continuous direct line of sight
 
         // Collision & Raycast Obstacle Storage
         const collidableBoxes = [];
@@ -391,6 +392,7 @@
             } while (distToPlayer < 18);
 
             monsterGroup.position.set(mx, floorHeights[monsterFloor] - 1.8, mz);
+            stareTimer = 0;
         }
 
         function setupFullscreen() {
@@ -754,6 +756,7 @@
 
             isMonsterHidden = false;
             monsterCooldown = 0;
+            stareTimer = 0;
             monsterGroup.visible = true;
             
             spawnMonsterAwayFromPlayer();
@@ -789,11 +792,11 @@
                 return;
             }
 
-            // --- 2. ACTIVE MONSTER DISTANCE & SIGHT CHECKS ---
-            const dx = camera.position.x - monsterGroup.position.x;
-            const dy = camera.position.y - (monsterGroup.position.y + 1.8);
-            const dz = camera.position.z - monsterGroup.position.z;
-            const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            // --- 2. ACTIVE MONSTER DISTANCE & DIRECT LINE OF SIGHT CHECKS ---
+            const monsterTarget = monsterGroup.position.clone().add(new THREE.Vector3(0, 1.8, 0));
+            const toMonster = new THREE.Vector3().subVectors(monsterTarget, camera.position);
+            const dist3D = toMonster.length();
+            toMonster.normalize();
 
             // --- PROXIMITY BLINK MECHANIC ---
             const maxDetectDist = 18;
@@ -817,42 +820,41 @@
                 return;
             }
 
-            // Stare/Look Detection with Strict Wall-Block Raycasting
+            // Direct Line of Sight Raycast Stare Check
             const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-            const toMonster = new THREE.Vector3(-dx, -dy, -dz).normalize();
             const dot = camDir.dot(toMonster);
 
             let hasLineOfSight = false;
-            if (dot > 0.40) {
+
+            // Strict direct center view check (dot > 0.7) unblocked by walls
+            if (dot > 0.7) {
                 const raycaster = new THREE.Raycaster(camera.position, toMonster, 0, dist3D);
                 const wallHits = raycaster.intersectObjects(wallMeshes, false);
                 
-                let hitObstacle = false;
-                if (wallHits.length > 0 && wallHits[0].distance < dist3D - 0.6) {
-                    hitObstacle = true;
-                }
-
-                if (!hitObstacle) {
+                if (wallHits.length === 0 || wallHits[0].distance >= dist3D - 0.2) {
                     hasLineOfSight = true;
                 }
             }
 
-            // Staring at entity banishes it for 10 seconds
+            // Direct line of sight must be maintained for 1 second continuously to make him leave
             if (hasLineOfSight) {
-                isMonsterHidden = true;
-                monsterCooldown = 10;
-                overlay.style.opacity = '0';
-                document.getElementById('status-display').innerText = `STATUS: BANISHED ENTITY (10s)`;
-                return;
+                stareTimer += delta;
+                if (stareTimer >= 1.0) {
+                    isMonsterHidden = true;
+                    monsterCooldown = 10;
+                    stareTimer = 0;
+                    overlay.style.opacity = '0';
+                    document.getElementById('status-display').innerText = `STATUS: BANISHED ENTITY`;
+                    return;
+                }
+            } else {
+                stareTimer = 0;
             }
 
             // --- 3. MONSTER CHASE MOVEMENT ---
             const speed = 3.8;
-            const dirX = (camera.position.x - monsterGroup.position.x) / (dist3D || 1);
-            const dirZ = (camera.position.z - monsterGroup.position.z) / (dist3D || 1);
-
-            monsterGroup.position.x += dirX * speed * delta;
-            monsterGroup.position.z += dirZ * speed * delta;
+            monsterGroup.position.x += toMonster.x * speed * delta;
+            monsterGroup.position.z += toMonster.z * speed * delta;
             monsterGroup.position.y = floorHeights[currentFloor] - 1.8;
 
             monsterGroup.lookAt(camera.position.x, monsterGroup.position.y, camera.position.z);
